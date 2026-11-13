@@ -100,19 +100,27 @@ def carregar_planilha(fonte, familia_default: str) -> pd.DataFrame:
 # ==============================================================================
 st.sidebar.title("Upload das Planilhas de Resultados")
 
-with st.sidebar.expander("Arquivos Excel", expanded=False):
-    upload_cnn = st.file_uploader("Planilha CNN (.xlsx)", type=["xlsx"], key="cnn_up")
-    upload_vit = st.file_uploader("Planilha ViT (.xlsx)", type=["xlsx"], key="vit_up")
+# with st.sidebar.expander("Arquivos Excel", expanded=False):
+#     upload_cnn = st.file_uploader("Planilha CNN (.xlsx)", type=["xlsx"], key="cnn_up")
+#     upload_vit = st.file_uploader("Planilha ViT (.xlsx)", type=["xlsx"], key="vit_up")
 
-fonte_cnn = upload_cnn if upload_cnn is not None else "Registro_Experimentos_CNN.xlsx"
-fonte_vit = upload_vit if upload_vit is not None else "Registro_Experimentos_ViT.xlsx"
+# fonte_cnn = upload_cnn if upload_cnn is not None else "Registro_Experimentos_CNN.xlsx"
+# fonte_vit = upload_vit if upload_vit is not None else "Registro_Experimentos_ViT.xlsx"
 
-if not isinstance(fonte_cnn, st.runtime.uploaded_file_manager.UploadedFile) and not os.path.exists(fonte_cnn):
-    st.error(f"Arquivo `{fonte_cnn}` não encontrado. Faça o upload na barra lateral.")
-    st.stop()
+# if not isinstance(fonte_cnn, st.runtime.uploaded_file_manager.UploadedFile) and not os.path.exists(fonte_cnn):
+#     st.error(f"Arquivo `{fonte_cnn}` não encontrado. Faça o upload na barra lateral.")
+#     st.stop()
 
-if not isinstance(fonte_vit, st.runtime.uploaded_file_manager.UploadedFile) and not os.path.exists(fonte_vit):
-    st.error(f"Arquivo `{fonte_vit}` não encontrado. Faça o upload na barra lateral.")
+# if not isinstance(fonte_vit, st.runtime.uploaded_file_manager.UploadedFile) and not os.path.exists(fonte_vit):
+#     st.error(f"Arquivo `{fonte_vit}` não encontrado. Faça o upload na barra lateral.")
+#     st.stop()
+
+
+fonte_cnn = "Registro_Experimentos_CNN.xlsx"
+fonte_vit = "Registro_Experimentos_ViT.xlsx"
+
+if not os.path.exists(fonte_cnn) or not os.path.exists(fonte_vit):
+    st.error("Planilhas `Registro_Experimentos_CNN.xlsx` ou `Registro_Experimentos_ViT.xlsx` não encontradas na pasta do projeto.")
     st.stop()
 
 df_cnn_raw = carregar_planilha(fonte_cnn, "CNN")
@@ -264,7 +272,7 @@ with abas[0]:
     with col_f2:
         modo_visualizacao = st.radio(
             "Agrupar cores do gráfico por:",
-            options=["Descritor (ex: cqm_eucl, q_eucl)", "Arquitetura (facetado por Descritor)"],
+            options=["Descritor (ex: cqm_eucl, q_eucl)", "Arquitetura"],
             index=0,
         )
 
