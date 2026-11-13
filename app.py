@@ -37,10 +37,10 @@ def normalizar_tipo_entrada(valor: str) -> str:
     s = str(valor).strip().lower()
     if s.startswith("original"):
         return "Original"
-    # Padroniza abreviações finais (eucli -> eucl, manha -> manh)
+
     s = re.sub(r"eucli\b", "eucl", s)
     s = re.sub(r"manha\b", "manh", s)
-    # Mantém prefixo L maiúsculo (ex: L15_q_chess_eucl_manh)
+
     s = re.sub(r"^l(\d+)", lambda m: f"L{m.group(1)}", s)
     return s
 
@@ -53,18 +53,15 @@ def extrair_janela(tipo_normalizado: str) -> str:
     return match.group(1) if match else "Outro"
 
 
-def extrair_descritor(tipo_normalizado: str) -> str:
-    """Extrai o sufixo da representação de percolação (ex: q_chess_eucl_manh)."""
+def extrair_descritor(tipo_normalizado: str) -> str:    
     if tipo_normalizado == "Original":
         return "RGB Original"
     return re.sub(r"^L\d+_", "", tipo_normalizado)
 
 
-def carregar_planilha(fonte, familia_default: str) -> pd.DataFrame:
-    """Lê a aba Registro_Treinamento, preenche metadados na linha MÉDIA e normaliza."""
+def carregar_planilha(fonte, familia_default: str) -> pd.DataFrame:    
     df = pd.read_excel(fonte, sheet_name="Registro_Treinamento")
 
-    # Preenche metadados ausentes nas linhas 'MÉDIA' usando os folds do mesmo experimento
     cols_metadados = [
         "Dataset",
         "Tipo_imagem",
@@ -78,7 +75,6 @@ def carregar_planilha(fonte, familia_default: str) -> pd.DataFrame:
     cols_existentes = [c for c in cols_metadados if c in df.columns]
     df[cols_existentes] = df.groupby("ID_Experimento", sort=False)[cols_existentes].ffill()
 
-    # Garante conversão numérica das métricas
     for col in METRICAS_DISPONIVEIS.values():
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -92,7 +88,6 @@ def carregar_planilha(fonte, familia_default: str) -> pd.DataFrame:
     df["Janela"] = df["Entrada_Padronizada"].apply(extrair_janela)
     df["Descritor"] = df["Entrada_Padronizada"].apply(extrair_descritor)
 
-    # Ordenação categórica das janelas
     categorias_extras = [j for j in df["Janela"].unique() if j not in ORDEM_JANELAS]
     df["Janela"] = pd.Categorical(
         df["Janela"], categories=ORDEM_JANELAS + categorias_extras, ordered=True
@@ -124,7 +119,6 @@ df_cnn_raw = carregar_planilha(fonte_cnn, "CNN")
 df_vit_raw = carregar_planilha(fonte_vit, "Vision Transformer (ViT)")
 df_completo = pd.concat([df_cnn_raw, df_vit_raw], ignore_index=True)
 
-# Filtra apenas as linhas de MÉDIA das 5 folds (conforme solicitado)
 df_media = df_completo[df_completo["Fold"].astype(str).str.upper() == "MÉDIA"].copy()
 
 st.sidebar.markdown("---")
@@ -153,7 +147,6 @@ arquiteturas_sel = st.sidebar.multiselect(
     default=arquiteturas_disponiveis,
 )
 
-# Filtro de Janelas (L3, L5, L7, L15, L21, L41, Original)
 janelas_presentes = [j for j in ORDEM_JANELAS if j in df_media["Janela"].astype(str).unique()]
 janelas_sel = st.sidebar.multiselect(
     "Tamanhos de Janela (L):",
@@ -161,7 +154,6 @@ janelas_sel = st.sidebar.multiselect(
     default=janelas_presentes,
 )
 
-# Filtro de Descritores de Percolação
 descritores_disponiveis = sorted(df_media["Descritor"].dropna().unique().tolist())
 descritores_sel = st.sidebar.multiselect(
     "Descritor / Canal de Percolação:",
@@ -197,7 +189,7 @@ st.caption(
     "Análise das médias das 5 folds (`Fold == 'MÉDIA'`) "
 )
 
-# Destaque do melhor modelo no recorte atual
+
 melhor_idx = (
     df_filtrado[metrica_col].idxmin()
     if metrica_col in ["Loss_Teste", "Tempo_Treino_Seg"]
@@ -214,7 +206,7 @@ with col2:
         if is_percentual
         else f"{melhor_row[metrica_col]:.4f}"
     )
-    st.metric(f"Melhor {metrica_label}", val_fmt, delta=melhor_row["Arquitetura"])
+    st.metric(f"Melhor {metrica_label}", val_fmt)
 with col3:
     st.metric("Melhor Entrada / Janela", melhor_row["Entrada_Padronizada"])
 with col4:
@@ -239,64 +231,161 @@ if habilitar_cm:
 abas = st.tabs(nomes_abas)
 
 # ------------------------------------------------------------------------------
-# ABA 1: EVOLUÇÃO POR JANELA (L3, L5, L7, L15, L21, L41)
+# ABA 1: DESCRITORES & DISTÂNCIAS POR JANELA (L3, L5, L7, L15, L21, L41)
 # ------------------------------------------------------------------------------
 with abas[0]:
-    st.subheader(f"{metrica_label} por Tamanho de Janela (L) e Arquitetura")
+    st.subheader(f"{metrica_label} por Descritor / Distância ao longo das Janelas (L)")
 
-    modo_agregacao = st.radio(
-        "Quando houver múltiplos descritores na mesma janela (ex: L15_q_chess, L15_cqm_chess), exibir:",
-        options=["Melhor resultado da janela (Máximo/Mínimo)", "Média entre descritores da janela"],
-        horizontal=True,
-    )
+    def classificar_distancia(desc: str) -> str:
+        if desc == "RGB Original":
+            return "Baseline (Original)"
+        if desc == "q_chess_eucl_manh":
+            return "Combinada (Chess + Eucl + Manh)"
+        if "chess" in desc:
+            return "Chessboard(chess)"
+        if "eucl" in desc:
+            return "Euclidiana (eucl)"
+        if "manh" in desc:
+            return "Manhattan (manh)"
+        return "Outra"
 
-    if modo_agregacao.startswith("Melhor"):
-        func_agg = "min" if metrica_col in ["Loss_Teste", "Tempo_Treino_Seg"] else "max"
+    df_aba1 = df_filtrado.copy()
+    df_aba1["Distancia"] = df_aba1["Descritor"].apply(classificar_distancia)
+
+    col_f1, col_f2 = st.columns([2, 1])
+    with col_f1:
+        distancias_disp = sorted(df_aba1["Distancia"].unique().tolist())
+        distancias_sel = st.multiselect(
+            "Filtrar por Métrica de Distância:",
+            options=distancias_disp,
+            default=distancias_disp,
+            key="filtro_dist_aba1",
+        )
+    with col_f2:
+        modo_visualizacao = st.radio(
+            "Agrupar cores do gráfico por:",
+            options=["Descritor (ex: cqm_eucl, q_eucl)", "Arquitetura (facetado por Descritor)"],
+            index=0,
+        )
+
+    df_aba1 = df_aba1[df_aba1["Distancia"].isin(distancias_sel)]
+
+    if df_aba1.empty:
+        st.warning("Nenhum dado para a distância selecionada.")
+    elif modo_visualizacao.startswith("Descritor"):
+        # Compara cqm_eucl, q_eucl, etc. lado a lado em cada janela L, com painéis por Arquitetura
+        fig_desc = px.bar(
+            df_aba1.sort_values(["Janela", "Descritor"]),
+            x="Janela",
+            y=metrica_col,
+            color="Descritor",
+            barmode="group",
+            facet_col="Arquitetura",
+            facet_col_wrap=2,
+            text_auto=".3f",
+            category_orders={"Janela": janelas_sel},
+            hover_data=["ID_Experimento", "Entrada_Padronizada", "Acuracia_Teste", "F1_Score_Macro"],
+            title=f"Comparação entre Descritores por Janela (L) — {metrica_label}",
+            labels={"Janela": "Janela (L)", metrica_col: metrica_label},
+            height=650,
+        )
+        if is_percentual:
+            y_min = max(0.0, df_aba1[metrica_col].min() - 0.04)
+            fig_desc.update_yaxes(range=[y_min, 1.01], tickformat=".1%")
+        fig_desc.update_traces(textposition="outside")
+        st.plotly_chart(fig_desc, use_container_width=True)
+
+        fig_linhas_desc = px.line(
+            df_aba1.sort_values(["Janela", "Descritor"]),
+            x="Janela",
+            y=metrica_col,
+            color="Descritor",
+            line_dash="Familia",
+            facet_col="Arquitetura",
+            facet_col_wrap=2,
+            markers=True,
+            category_orders={"Janela": janelas_sel},
+            title=f"Curva de Desempenho por Descritor ao Longo de L — {metrica_label}",
+            labels={"Janela": "Janela (L)", metrica_col: metrica_label},
+            height=620,
+        )
+        if is_percentual:
+            fig_linhas_desc.update_yaxes(range=[y_min, 1.01], tickformat=".1%")
+        fig_linhas_desc.update_traces(line=dict(width=2.5), marker=dict(size=8))
+        st.plotly_chart(fig_linhas_desc, use_container_width=True)
+
     else:
-        func_agg = "mean"
-
-    df_janela = (
-        df_filtrado.groupby(["Janela", "Arquitetura", "Familia"], observed=True)[metrica_col]
-        .agg(func_agg)
-        .reset_index()
-        .dropna(subset=[metrica_col])
-    )
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-        fig_bar_janela = px.bar(
-            df_janela,
+        fig_arq = px.bar(
+            df_aba1.sort_values(["Janela", "Arquitetura"]),
             x="Janela",
             y=metrica_col,
             color="Arquitetura",
             barmode="group",
-            text_auto=".4f",
-            title=f"Comparação Agrupada por Janela ({metrica_label})",
-            labels={"Janela": "Escala / Janela", metrica_col: metrica_label},
+            facet_col="Descritor",
+            facet_col_wrap=2,
+            text_auto=".3f",
+            category_orders={"Janela": janelas_sel},
+            title=f"CNN vs. ViT separado por Descritor — {metrica_label}",
+            labels={"Janela": "Janela (L)", metrica_col: metrica_label},
+            height=800,
         )
         if is_percentual:
-            y_min = max(0.0, df_janela[metrica_col].min() - 0.05)
-            fig_bar_janela.update_yaxes(range=[y_min, 1.01], tickformat=".1%")
-        fig_bar_janela.update_traces(textposition="outside")
-        st.plotly_chart(fig_bar_janela, use_container_width=True)
+            y_min = max(0.0, df_aba1[metrica_col].min() - 0.04)
+            fig_arq.update_yaxes(range=[y_min, 1.01], tickformat=".1%")
+        st.plotly_chart(fig_arq, use_container_width=True)
 
-    with c2:
-        fig_line_janela = px.line(
-            df_janela,
-            x="Janela",
-            y=metrica_col,
-            color="Arquitetura",
-            symbol="Familia",
-            markers=True,
-            title=f"Tendência entre Escalas L ({metrica_label})",
-            labels={"Janela": "Escala / Janela", metrica_col: metrica_label},
+    # --------------------------------------------------------------------------
+    # COMPARADOR DIRETO (DUELO ENTRE DOIS EXPERIMENTOS ESPECÍFICOS)
+    # --------------------------------------------------------------------------
+    st.markdown("---")
+    st.subheader("Comparação Cenário A  x Cenário B ")
+
+    opcoes_duelo = (
+        df_aba1.sort_values(["Arquitetura", "Janela", "Descritor"])
+        .apply(
+            lambda r: f"{r['Arquitetura']} | {r['Entrada_Padronizada']} ({r['ID_Experimento']})",
+            axis=1,
         )
-        if is_percentual:
-            y_min = max(0.0, df_janela[metrica_col].min() - 0.05)
-            fig_line_janela.update_yaxes(range=[y_min, 1.01], tickformat=".1%")
-        fig_line_janela.update_traces(line=dict(width=3), marker=dict(size=10))
-        st.plotly_chart(fig_line_janela, use_container_width=True)
+        .tolist()
+    )
+
+    if len(opcoes_duelo) >= 2:
+        idx_a = next((i for i, s in enumerate(opcoes_duelo) if "L3_cqm_eucl" in s), 0)
+        idx_b = next((i for i, s in enumerate(opcoes_duelo) if "L15_q_eucl" in s), 1)
+
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            cen_a = st.selectbox("Cenário A:", options=opcoes_duelo, index=idx_a, key="duelo_a")
+        with col_d2:
+            cen_b = st.selectbox("Cenário B:", options=opcoes_duelo, index=idx_b, key="duelo_b")
+
+        row_a = df_aba1[
+            df_aba1.apply(
+                lambda r: f"{r['Arquitetura']} | {r['Entrada_Padronizada']} ({r['ID_Experimento']})" == cen_a,
+                axis=1,
+            )
+        ].iloc[0]
+        row_b = df_aba1[
+            df_aba1.apply(
+                lambda r: f"{r['Arquitetura']} | {r['Entrada_Padronizada']} ({r['ID_Experimento']})" == cen_b,
+                axis=1,
+            )
+        ].iloc[0]
+
+        val_a = row_a[metrica_col]
+        val_b = row_b[metrica_col]
+        diff = val_a - val_b
+
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            fmt_a = f"{val_a*100:.2f}%" if is_percentual else f"{val_a:.4f}"
+            st.metric(f"Cenário A ({row_a['Entrada_Padronizada']})", fmt_a)
+        with m2:
+            fmt_b = f"{val_b*100:.2f}%" if is_percentual else f"{val_b:.4f}"
+            st.metric(f"Cenário B ({row_b['Entrada_Padronizada']})", fmt_b)
+        with m3:
+            fmt_diff = f"{diff*100:+.2f} p.p." if is_percentual else f"{diff:+.4f}"
+            st.metric("Diferença (A − B)", fmt_diff)
 
 # ------------------------------------------------------------------------------
 # ABA 2: COMPARAÇÃO DIRETA POR TIPO DE ENTRADA EXATA
@@ -498,6 +587,6 @@ if habilitar_cm:
             st.plotly_chart(fig_cm, use_container_width=True)
         else:
             st.warning(
-                "Os arquivos `.npy` ainda não estão presentes no diretório local `./resultados/...`. "
-                "Assim que você copiá-los do servidor (ou fizer upload), o gráfico será renderizado automaticamente aqui."
+                "Usar os .npy  ./resultados/.... "
+
             )
