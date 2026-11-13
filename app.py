@@ -98,7 +98,7 @@ def carregar_planilha(fonte, familia_default: str) -> pd.DataFrame:
 # ==============================================================================
 # SIDEBAR — CARREGAMENTO E FILTROS
 # ==============================================================================
-st.sidebar.title("Upload das Planilhas de Resultados")
+# st.sidebar.title("Upload das Planilhas de Resultados")
 
 # with st.sidebar.expander("Arquivos Excel", expanded=False):
 #     upload_cnn = st.file_uploader("Planilha CNN (.xlsx)", type=["xlsx"], key="cnn_up")
